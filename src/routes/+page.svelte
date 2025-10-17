@@ -18,6 +18,80 @@
     // Predefined list of names
     const names = ["JT", "JK", "AT", "JM", "IJ"];
 
+    // ------------------------------------------
+    // 🔑 NEW: 2A. Image Handling Function
+    // ------------------------------------------
+
+    /**
+     * Handles file input change and stores the file in state.
+     * @param {Event} event
+     */
+     function handleFileChange(event) {
+        // Get the first file from the input (usually only one)
+        const file = event.target.files[0]; 
+        
+        if (file) {
+            imageFile = file;
+        } else {
+            imageFile = null;
+        }
+    }
+
+    // ------------------------------------------
+    // 🔑 UPDATED: 2B. Combined Upload & Log Function
+    // ------------------------------------------
+
+    /**
+     * Uploads the file to Storage, gets the URL, and logs the item to Firestore.
+     * @param {Object} itemData - The item data excluding the image URL
+     */
+    async function uploadAndLogItem(itemData) {
+        if (isUploading || isSubmitting) return;
+
+        isUploading = true;
+        isSubmitting = true;
+        let finalImageURL = itemData.imageURL;
+
+        try {
+            if (imageFile) {
+                // 1. Create a reference for the file in Firebase Storage
+                const storageRef = ref(storage, `fridge_images/${Date.now()}_${imageFile.name}`);
+
+                // 2. Upload the file
+                const snapshot = await uploadBytes(storageRef, imageFile);
+                console.log('Uploaded a file!', snapshot.metadata.fullPath);
+
+                // 3. Get the public download URL
+                finalImageURL = await getDownloadURL(snapshot.ref);
+                console.log('Download URL:', finalImageURL);
+            }
+            
+            // 4. Create the final Firestore document data
+            const firestoreData = {
+                ...itemData,
+                imageURL: finalImageURL,
+                createdAt: new Date().toISOString()
+            };
+
+            // 5. Log the data to Firestore
+            await addDoc(collection(db, "items"), firestoreData);
+            console.log("Item logged successfully!");
+
+            // 6. Clear state on success
+            loggerName = '';
+            itemName = '';
+            bestBefore = '';
+            imageFile = null; // Clear the file input state
+            
+        } catch (e) {
+            console.error("Error during upload or logging: ", e);
+            alert(`Error: ${e.message}`);
+        } finally {
+            isUploading = false;
+            isSubmitting = false;
+        }
+    }
+
     async function logItemToFirestore(newItem) {
         if (isSubmitting) return;
         isSubmitting = true;
