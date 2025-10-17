@@ -2,6 +2,7 @@
     import { onMount } from 'svelte';
     import { db } from '../firebase';
     import { doc, deleteDoc, collection, addDoc, onSnapshot, updateDoc } from 'firebase/firestore';
+    import { uploadBytes } from "firebase/storage";
 
     let items = [];
     let loggerName = '';
@@ -12,6 +13,8 @@
     let type = 'fridge'; // New field
     let shared = false; // New field
     let isSubmitting = false;
+    let imageFile = null;
+    let finalImageData = null;
 
     let filterName = ''; // For dropdown filter
 
@@ -45,51 +48,88 @@
      * Uploads the file to Storage, gets the URL, and logs the item to Firestore.
      * @param {Object} itemData - The item data excluding the image URL
      */
-    async function uploadAndLogItem(itemData) {
-        if (isUploading || isSubmitting) return;
+    // NOTE: You will need a utility function to convert a File/Blob to a base64 string.
+    // For example:
+    const fileToBase64 = (file) => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => resolve(reader.result.split(',')[1]); // Only the base64 part
+        reader.onerror = error => reject(error);
+    });
 
-        isUploading = true;
-        isSubmitting = true;
-        let finalImageURL = itemData.imageURL;
+    async function getImageBase64() {
+        console.log("Get image base64");
 
         try {
             if (imageFile) {
-                // 1. Create a reference for the file in Firebase Storage
-                const storageRef = ref(storage, `fridge_images/${Date.now()}_${imageFile.name}`);
+                // Resize the image before converting (Optional, but highly recommended 
+                // due to Firestore's 1MB document size limit)
+                const resizedImageFile = await resizeImage(imageFile, 600, 600); // Smaller resize for embedding
 
-                // 2. Upload the file
-                const snapshot = await uploadBytes(storageRef, imageFile);
-                console.log('Uploaded a file!', snapshot.metadata.fullPath);
-
-                // 3. Get the public download URL
-                finalImageURL = await getDownloadURL(snapshot.ref);
-                console.log('Download URL:', finalImageURL);
+                // 1. Convert the resized image File/Blob into a base64 string
+                //    This base64 string will represent the "bytes field" you requested.
+                finalImageData = await fileToBase64(resizedImageFile); 
+                console.log('Image converted to base64 string.', finalImageData);
             }
-            
-            // 4. Create the final Firestore document data
-            const firestoreData = {
-                ...itemData,
-                imageURL: finalImageURL,
-                createdAt: new Date().toISOString()
-            };
 
-            // 5. Log the data to Firestore
-            await addDoc(collection(db, "items"), firestoreData);
-            console.log("Item logged successfully!");
-
-            // 6. Clear state on success
-            loggerName = '';
-            itemName = '';
-            bestBefore = '';
-            imageFile = null; // Clear the file input state
-            
-        } catch (e) {
-            console.error("Error during upload or logging: ", e);
-            alert(`Error: ${e.message}`);
-        } finally {
-            isUploading = false;
-            isSubmitting = false;
+            return "data:image/jpeg;base64," + finalImageData;
+        } catch (error) {
+            // Since we removed Firebase Storage calls, errors will mainly be from 
+            // resizing, base64 conversion, or the addDoc call.
+            console.error("Error converting or logging item:", error);
         }
+    }
+
+    /**
+     * Resizes an image file to the specified dimensions.
+     * @param {File} file - The image file to resize.
+     * @param {number} maxWidth - The maximum width of the resized image.
+     * @param {number} maxHeight - The maximum height of the resized image.
+     * @returns {Promise<File>} - A promise that resolves to the resized image file.
+     */
+    function resizeImage(file, maxWidth, maxHeight) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+
+                    let width = img.width;
+                    let height = img.height;
+
+                    // Calculate the new dimensions while maintaining the aspect ratio
+                    if (width > maxWidth || height > maxHeight) {
+                        if (width > height) {
+                            height = Math.round((height * maxWidth) / width);
+                            width = maxWidth;
+                        } else {
+                            width = Math.round((width * maxHeight) / height);
+                            height = maxHeight;
+                        }
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    // Convert the canvas to a Blob
+                    canvas.toBlob((blob) => {
+                        if (blob) {
+                            const resizedFile = new File([blob], file.name, { type: file.type });
+                            resolve(resizedFile);
+                        } else {
+                            reject(new Error("Canvas is empty"));
+                        }
+                    }, file.type);
+                };
+                img.onerror = (error) => reject(error);
+                img.src = event.target.result;
+            };
+            reader.onerror = (error) => reject(error);
+            reader.readAsDataURL(file);
+        });
     }
 
     async function logItemToFirestore(newItem) {
@@ -164,7 +204,7 @@
         return unsubscribe;
     });
 
-    function handleSubmit() {
+    async function handleSubmit() {
         if (!loggerName || !itemName || isSubmitting) {
             if (!isSubmitting) {
                 alert('Please fill in all required fields.');
@@ -177,7 +217,7 @@
             name: loggerName,
             itemName: itemName,
             bestBefore: bestBefore,
-            imageURL: imageURL || 'https://via.placeholder.com/50x50?text=❓',
+            imageBase64: await getImageBase64(),
             quantity: quantity,
             type: type,
             shared: shared
@@ -286,8 +326,8 @@
     }
 
     .item-image {
-        width: 50px;
-        height: 50px;
+        width: 200px;
+        height: 200px;
         object-fit: cover;
         border-radius: 4px;
         margin-right: 15px;
@@ -417,6 +457,13 @@
             <input id="shared" type="checkbox" bind:checked={shared}>
         </div>
 
+            
+        <div class="form-group">
+            <label for="image">Image:</label>
+            <input type="file" id="image" accept="image/*" on:change={handleFileChange} />
+        </div>
+
+
         <button type="submit">Log Item</button>
     </form>
 
@@ -436,7 +483,7 @@
         <ul class="item-list">
             {#each items.filter(item => !filterName || item.name === filterName) as item (item.id)}
                 <li class="item-card">
-                    <img class="item-image" src={item.imageURL} alt={item.itemName}>
+                    <img class="item-image" src={item.imageBase64} alt={item.itemName}>
                     
                     <div class="item-details">
                         <p class="item-name">{item.itemName}</p>
