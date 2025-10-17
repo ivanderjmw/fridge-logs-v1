@@ -6,7 +6,7 @@
     let items = [];
     let loggerName = '';
     let itemName = '';
-    let bestBefore = '';
+    let bestBefore = ''; // Optional field
     let imageURL = '';
     let quantity = 1; // New field
     let type = 'fridge'; // New field
@@ -14,6 +14,9 @@
     let isSubmitting = false;
 
     let filterName = ''; // For dropdown filter
+
+    // Predefined list of names
+    const names = ["JT", "JK", "AT", "JM", "IJ"];
 
     async function logItemToFirestore(newItem) {
         if (isSubmitting) return;
@@ -23,7 +26,8 @@
             const { id, ...dataToSave } = newItem;
             const docRef = await addDoc(collection(db, "items"), {
                 ...dataToSave,
-                createdAt: new Date().toISOString()
+                createdAt: new Date().toISOString(),
+                bestBefore: bestBefore || null // Make bestBefore optional
             });
             console.log("Document written with ID: ", docRef.id);
 
@@ -56,22 +60,38 @@
             const itemRef = doc(db, 'items', itemId);
             await updateDoc(itemRef, { quantity: newQuantity });
         } catch (error) {
-            console.error('Error updating quantity:', error);
+            console.error('Error updating item quantity:', error);
         }
+    }
+
+    function calculateTimeDelta(createdAt) {
+        const now = new Date();
+        const createdDate = new Date(createdAt);
+        const deltaMilliseconds = now - createdDate;
+
+        const deltaDays = Math.floor(deltaMilliseconds / (1000 * 60 * 60 * 24));
+        const deltaHours = Math.floor((deltaMilliseconds % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+        const deltaMinutes = Math.floor((deltaMilliseconds % (1000 * 60 * 60)) / (1000 * 60));
+
+        return `${deltaDays} days, ${deltaHours} hours, ${deltaMinutes} minutes ago`;
     }
 
     onMount(() => {
         const unsubscribe = onSnapshot(collection(db, "items"), (snapshot) => {
             items = snapshot.docs.map(doc => ({
                 id: doc.id,
-                ...doc.data()
+                ...doc.data(),
+                timeDelta: calculateTimeDelta(doc.data().createdAt) // Calculate time delta
             }));
+            // Sort items by oldest `createdAt`
+            items.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
         });
+
         return unsubscribe;
     });
 
     function handleSubmit() {
-        if (!loggerName || !itemName || !bestBefore || isSubmitting) {
+        if (!loggerName || !itemName || isSubmitting) {
             if (!isSubmitting) {
                 alert('Please fill in all required fields.');
             }
@@ -287,7 +307,12 @@
 
         <div class="form-group">
             <label for="logger-name">Your Name</label>
-            <input id="logger-name" type="text" bind:value={loggerName} placeholder="E.g., John" required>
+            <select id="logger-name" bind:value={loggerName}>
+                <option value="" disabled selected>Select a name</option>
+                {#each names as name}
+                    <option value={name}>{name}</option>
+                {/each}
+            </select>
         </div>
 
         <div class="form-group">
@@ -297,7 +322,7 @@
 
         <div class="form-group">
             <label for="best-before">Best Before Date</label>
-            <input id="best-before" type="date" bind:value={bestBefore} required>
+            <input id="best-before" type="date" bind:value={bestBefore}>
         </div>
 
         <div class="form-group">
@@ -346,6 +371,7 @@
                         <p>Quantity: {item.quantity}</p>
                         <p>Type: {item.type}</p>
                         <p>Shared: {item.shared ? 'Yes' : 'No'}</p>
+                        <p>Age: {item.timeDelta}</p>
                     </div>
                     <button on:click={() => decreaseQuantity(item)}>-</button>
                     <button on:click={() => increaseQuantity(item)}>+</button>
