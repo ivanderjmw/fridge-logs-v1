@@ -4,6 +4,9 @@
     import { doc, deleteDoc, collection, addDoc, onSnapshot, updateDoc } from 'firebase/firestore';
     import { uploadBytes } from "firebase/storage";
 
+    // Feature flags
+    const enableAILogging = import.meta.env.VITE_ENABLE_AI_LOGGING === 'true';
+
     let items = [];
     let loggerName = '';
     let itemName = '';
@@ -29,6 +32,21 @@
     let selectedUser = '';
     let pinError = '';
     const CORRECT_PIN = 'tp';
+
+    // AI Logging state
+    let showCameraPopup = false;
+    let showVerificationPopup = false;
+    let videoStream = null;
+    let capturedImageForAI = null;
+    let aiAnalyzing = false;
+    let aiError = '';
+    let aiSuggestedData = {
+        itemName: '',
+        bestBefore: '',
+        quantity: 1,
+        type: 'fridge',
+        shared: false
+    };
 
     // Cookie functions
     function setCookie(name, value, days = 365) {
@@ -341,6 +359,174 @@
             month: 'short',
             day: 'numeric'
         });
+    }
+
+    // AI Logging Functions
+    async function openCamera() {
+        showCameraPopup = true;
+        aiError = '';
+        try {
+            videoStream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: 'environment' } 
+            });
+            
+            // Wait for next tick to ensure video element exists
+            setTimeout(() => {
+                const videoElement = document.getElementById('camera-video');
+                if (videoElement && videoStream) {
+                    videoElement.srcObject = videoStream;
+                }
+            }, 100);
+        } catch (error) {
+            console.error('Error accessing camera:', error);
+            aiError = 'Failed to access camera. Please check permissions.';
+            showCameraPopup = false;
+        }
+    }
+
+    function closeCamera() {
+        if (videoStream) {
+            videoStream.getTracks().forEach(track => track.stop());
+            videoStream = null;
+        }
+        showCameraPopup = false;
+        capturedImageForAI = null;
+    }
+
+    function captureImage() {
+        const videoElement = document.getElementById('camera-video');
+        const canvas = document.createElement('canvas');
+        canvas.width = videoElement.videoWidth;
+        canvas.height = videoElement.videoHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(videoElement, 0, 0);
+        
+        capturedImageForAI = canvas.toDataURL('image/jpeg', 0.8);
+        closeCamera();
+        analyzeImageWithAI(capturedImageForAI);
+    }
+
+    async function analyzeImageWithAI(imageData) {
+        aiAnalyzing = true;
+        aiError = '';
+        
+        try {
+            const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+            if (!apiKey || apiKey === 'your-gemini-api-key-here') {
+                throw new Error('Gemini API key not configured. Please add VITE_GEMINI_API_KEY to your .env.local file.');
+            }
+
+            // Remove data URL prefix to get base64 string
+            const base64Image = imageData.split(',')[1];
+
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    contents: [{
+                        parts: [
+                            {
+                                text: `Analyze this image of a food item and provide the following information in JSON format:
+{
+  "itemName": "name of the food item",
+  "bestBefore": "estimated best before date in YYYY-MM-DD format (estimate based on typical shelf life, use today's date as reference: ${new Date().toISOString().split('T')[0]})",
+  "quantity": estimated quantity as a number,
+  "type": "fridge" or "freezer" (determine based on the type of food),
+  "shared": true or false (guess if this is likely a shared item based on packaging size)
+}
+
+Provide ONLY the JSON object, no additional text.`
+                            },
+                            {
+                                inline_data: {
+                                    mime_type: 'image/jpeg',
+                                    data: base64Image
+                                }
+                            }
+                        ]
+                    }]
+                })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error?.message || 'Failed to analyze image');
+            }
+
+            const data = await response.json();
+            const textResponse = data.candidates[0].content.parts[0].text;
+            
+            // Extract JSON from response (may be wrapped in markdown code blocks)
+            const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                const parsedData = JSON.parse(jsonMatch[0]);
+                aiSuggestedData = {
+                    itemName: parsedData.itemName || '',
+                    bestBefore: parsedData.bestBefore || '',
+                    quantity: parsedData.quantity || 1,
+                    type: parsedData.type || 'fridge',
+                    shared: parsedData.shared || false
+                };
+                showVerificationPopup = true;
+            } else {
+                throw new Error('Could not parse AI response');
+            }
+        } catch (error) {
+            console.error('Error analyzing image:', error);
+            aiError = error.message;
+        } finally {
+            aiAnalyzing = false;
+        }
+    }
+
+    function closeVerificationPopup() {
+        showVerificationPopup = false;
+        capturedImageForAI = null;
+        aiSuggestedData = {
+            itemName: '',
+            bestBefore: '',
+            quantity: 1,
+            type: 'fridge',
+            shared: false
+        };
+    }
+
+    async function submitAILog() {
+        if (isSubmitting) return;
+        isSubmitting = true;
+
+        try {
+            // Convert the captured image to base64 for storage
+            const base64Image = capturedImageForAI;
+
+            const newItem = {
+                id: Date.now().toString(),
+                name: selectedUser || loggerName,
+                itemName: aiSuggestedData.itemName,
+                bestBefore: aiSuggestedData.bestBefore,
+                imageBase64: base64Image,
+                quantity: aiSuggestedData.quantity,
+                type: aiSuggestedData.type,
+                shared: aiSuggestedData.shared
+            };
+
+            const { id, ...dataToSave } = newItem;
+            const docRef = await addDoc(collection(db, "items"), {
+                ...dataToSave,
+                createdAt: new Date().toISOString(),
+                bestBefore: aiSuggestedData.bestBefore || null
+            });
+            console.log("Document written with ID: ", docRef.id);
+
+            closeVerificationPopup();
+        } catch (e) {
+            console.error("Error adding document: ", e);
+            alert("Failed to log item to Firestore.");
+        } finally {
+            isSubmitting = false;
+        }
     }
 </script>
 
@@ -665,6 +851,163 @@
     .reset-btn:hover {
         background-color: #495057;
     }
+
+    /* AI Logging styles */
+    .ai-button {
+        grid-column: 1 / -1;
+        background-color: #9775fa;
+        color: white;
+        font-weight: bold;
+        cursor: pointer;
+        transition: background-color 0.3s;
+        padding: 10px;
+        border: 1px solid #9775fa;
+        border-radius: 4px;
+        font-size: 1em;
+    }
+
+    .ai-button:hover {
+        background-color: #845ef7;
+    }
+
+    .popup-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.8);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 10000;
+    }
+
+    .popup-content {
+        background: white;
+        padding: 30px;
+        border-radius: 12px;
+        max-width: 90%;
+        max-height: 90%;
+        overflow-y: auto;
+        position: relative;
+    }
+
+    .camera-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 20px;
+    }
+
+    #camera-video {
+        width: 100%;
+        max-width: 640px;
+        border-radius: 8px;
+    }
+
+    .camera-buttons {
+        display: flex;
+        gap: 10px;
+    }
+
+    .capture-btn {
+        padding: 12px 24px;
+        background-color: #51cf66;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 1em;
+        cursor: pointer;
+    }
+
+    .capture-btn:hover {
+        background-color: #40c057;
+    }
+
+    .cancel-btn {
+        padding: 12px 24px;
+        background-color: #868e96;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 1em;
+        cursor: pointer;
+    }
+
+    .cancel-btn:hover {
+        background-color: #495057;
+    }
+
+    .verification-container {
+        width: 500px;
+        max-width: 90vw;
+    }
+
+    .verification-container h2 {
+        margin-bottom: 20px;
+        color: #333;
+    }
+
+    .preview-image {
+        width: 100%;
+        max-height: 300px;
+        object-fit: contain;
+        border-radius: 8px;
+        margin-bottom: 20px;
+    }
+
+    .verification-form {
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+    }
+
+    .verification-form input,
+    .verification-form select {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 1em;
+    }
+
+    .verification-actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 20px;
+    }
+
+    .submit-btn {
+        flex: 1;
+        padding: 12px;
+        background-color: #2196F3;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 1em;
+        cursor: pointer;
+        font-weight: bold;
+    }
+
+    .submit-btn:hover {
+        background-color: #0b7dda;
+    }
+
+    .loading-spinner {
+        text-align: center;
+        padding: 40px;
+        color: #667eea;
+        font-size: 1.2em;
+    }
+
+    .ai-error {
+        color: #ff6b6b;
+        padding: 15px;
+        background-color: #ffe0e0;
+        border-radius: 6px;
+        margin: 10px 0;
+    }
 </style>
 
 {#if showSplash}
@@ -766,6 +1109,9 @@
 
 
         <button type="submit">Log Item</button>
+        {#if enableAILogging}
+            <button type="button" class="ai-button" on:click={openCamera}>📸 Log with AI</button>
+        {/if}
     </form>
 
     <hr>
@@ -805,3 +1151,90 @@
         <p class="empty-message">No items logged yet. Use the form above to add your first item!</p>
     {/if}
 </div>
+
+<!-- Camera Popup -->
+{#if showCameraPopup}
+    <div class="popup-overlay">
+        <div class="popup-content">
+            <div class="camera-container">
+                <h2>📸 Capture Food Item</h2>
+                <video id="camera-video" autoplay playsinline></video>
+                <div class="camera-buttons">
+                    <button class="capture-btn" on:click={captureImage}>Capture</button>
+                    <button class="cancel-btn" on:click={closeCamera}>Cancel</button>
+                </div>
+                {#if aiError}
+                    <div class="ai-error">{aiError}</div>
+                {/if}
+            </div>
+        </div>
+    </div>
+{/if}
+
+<!-- AI Analysis Loading -->
+{#if aiAnalyzing}
+    <div class="popup-overlay">
+        <div class="popup-content">
+            <div class="loading-spinner">
+                <p>🤖 Analyzing image with AI...</p>
+                <p>Please wait...</p>
+            </div>
+        </div>
+    </div>
+{/if}
+
+<!-- Verification Popup -->
+{#if showVerificationPopup}
+    <div class="popup-overlay">
+        <div class="popup-content">
+            <div class="verification-container">
+                <h2>✅ Verify AI Suggestions</h2>
+                
+                {#if capturedImageForAI}
+                    <img class="preview-image" src={capturedImageForAI} alt="Captured item">
+                {/if}
+
+                <div class="verification-form">
+                    <div class="form-group">
+                        <label for="ai-item-name">Item Name</label>
+                        <input id="ai-item-name" type="text" bind:value={aiSuggestedData.itemName}>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="ai-best-before">Best Before Date</label>
+                        <input id="ai-best-before" type="date" bind:value={aiSuggestedData.bestBefore}>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="ai-quantity">Quantity</label>
+                        <input id="ai-quantity" type="number" bind:value={aiSuggestedData.quantity} min="1">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="ai-type">Type</label>
+                        <select id="ai-type" bind:value={aiSuggestedData.type}>
+                            <option value="fridge">Fridge</option>
+                            <option value="freezer">Freezer</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="ai-shared">Shared</label>
+                        <input id="ai-shared" type="checkbox" bind:checked={aiSuggestedData.shared}>
+                    </div>
+                </div>
+
+                {#if aiError}
+                    <div class="ai-error">{aiError}</div>
+                {/if}
+
+                <div class="verification-actions">
+                    <button class="cancel-btn" on:click={closeVerificationPopup}>Cancel</button>
+                    <button class="submit-btn" on:click={submitAILog} disabled={isSubmitting}>
+                        {isSubmitting ? 'Submitting...' : 'Submit'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+{/if}
