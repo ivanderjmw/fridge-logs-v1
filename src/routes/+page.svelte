@@ -133,6 +133,7 @@
 
     function selectUserAndEnter(userName) {
         selectedUser = userName;
+        filterName = userName; // Prepopulate name filter with selected user
         setCookie('fridgeLoggerName', userName);
         showSplash = false;
     }
@@ -366,6 +367,7 @@
         const storedUser = getCookie('fridgeLoggerName');
         if (storedUser && names.includes(storedUser)) {
             selectedUser = storedUser;
+            filterName = storedUser; // Prepopulate name filter with logged-in user
             showSplash = false;
         } else {
             // Generate jumbled letters for PIN
@@ -755,6 +757,13 @@ Provide ONLY the JSON object, no additional text.`
     
     input[type="date"]::-webkit-calendar-picker-indicator {
         cursor: pointer;
+    }
+
+    input[type="date"] {
+        font-family: arial;
+        font-style: normal;
+        font-weight: normal;
+        padding: 10px;
     }
     
     @media (max-width: 768px) {
