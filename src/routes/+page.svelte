@@ -21,6 +21,92 @@
     // Predefined list of names
     const names = ["JT", "JK", "AT", "JM", "IJ"];
 
+    // Splash screen state
+    let showSplash = true;
+    let pinEntered = false;
+    let userInput = '';
+    let jumbledLetters = [];
+    let selectedUser = '';
+    let pinError = '';
+    const CORRECT_PIN = 'tp';
+
+    // Cookie functions
+    function setCookie(name, value, days = 365) {
+        const expires = new Date(Date.now() + days * 864e5).toUTCString();
+        document.cookie = name + '=' + encodeURIComponent(value) + '; expires=' + expires + '; path=/';
+    }
+
+    function getCookie(name) {
+        return document.cookie.split('; ').reduce((r, v) => {
+            const parts = v.split('=');
+            return parts[0] === name ? decodeURIComponent(parts[1]) : r;
+        }, '');
+    }
+
+    function deleteCookie(name) {
+        setCookie(name, '', -1);
+    }
+
+    // Generate jumbled letters containing 'tp' and 4 random letters
+    function generateJumbledLetters() {
+        const alphabet = 'abcdefghijklmnopqrstuvwxyz';
+        const randomLetters = [];
+        
+        // Add 4 random letters (excluding 't' and 'p')
+        const availableLetters = alphabet.split('').filter(l => l !== 't' && l !== 'p');
+        for (let i = 0; i < 4; i++) {
+            const randomIndex = Math.floor(Math.random() * availableLetters.length);
+            randomLetters.push(availableLetters[randomIndex]);
+            availableLetters.splice(randomIndex, 1);
+        }
+        
+        // Insert 't' and 'p' at random positions
+        const tPosition = Math.floor(Math.random() * (randomLetters.length + 1));
+        randomLetters.splice(tPosition, 0, 't');
+        
+        const pPosition = Math.floor(Math.random() * (randomLetters.length + 1));
+        randomLetters.splice(pPosition, 0, 'p');
+        
+        return randomLetters;
+    }
+
+    function selectLetter(letter) {
+        if (userInput.length < 2) {
+            userInput += letter;
+            pinError = '';
+        }
+    }
+
+    function clearInput() {
+        userInput = '';
+        pinError = '';
+    }
+
+    function verifyPin() {
+        if (userInput.toLowerCase() === CORRECT_PIN) {
+            pinEntered = true;
+            pinError = '';
+        } else {
+            pinError = 'Incorrect PIN. Please try again.';
+            userInput = '';
+        }
+    }
+
+    function selectUserAndEnter(userName) {
+        selectedUser = userName;
+        setCookie('fridgeLoggerName', userName);
+        showSplash = false;
+    }
+
+    function resetUser() {
+        deleteCookie('fridgeLoggerName');
+        selectedUser = '';
+        showSplash = true;
+        pinEntered = false;
+        userInput = '';
+        jumbledLetters = generateJumbledLetters();
+    }
+
     // ------------------------------------------
     // 🔑 NEW: 2A. Image Handling Function
     // ------------------------------------------
@@ -191,6 +277,16 @@
     }
 
     onMount(() => {
+        // Check if user is already stored in cookie
+        const storedUser = getCookie('fridgeLoggerName');
+        if (storedUser && names.includes(storedUser)) {
+            selectedUser = storedUser;
+            showSplash = false;
+        } else {
+            // Generate jumbled letters for PIN
+            jumbledLetters = generateJumbledLetters();
+        }
+
         const unsubscribe = onSnapshot(collection(db, "items"), (snapshot) => {
             items = snapshot.docs.map(doc => ({
                 id: doc.id,
@@ -411,7 +507,212 @@
         border-color: #007BFF;
         box-shadow: 0 0 5px rgba(0, 123, 255, 0.5);
     }
+
+    /* Splash screen styles */
+    .splash-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+    }
+
+    .splash-content {
+        background: white;
+        padding: 40px;
+        border-radius: 16px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        text-align: center;
+        max-width: 500px;
+        width: 90%;
+    }
+
+    .splash-content h1 {
+        margin-bottom: 30px;
+        color: #333;
+    }
+
+    .pin-input-display {
+        font-size: 2em;
+        font-weight: bold;
+        letter-spacing: 10px;
+        margin: 20px 0;
+        min-height: 50px;
+        color: #333;
+        background-color: #f8f9fa;
+        padding: 15px;
+        border-radius: 8px;
+        border: 2px solid #667eea;
+    }
+
+    .letter-buttons {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+        margin: 20px 0;
+    }
+
+    .letter-btn {
+        padding: 20px;
+        font-size: 1.5em;
+        font-weight: bold;
+        background-color: #ffffff;
+        border: 2px solid #495057;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.2s;
+        color: #212529;
+    }
+
+    .letter-btn:hover {
+        background-color: #667eea;
+        color: white;
+        border-color: #667eea;
+    }
+
+    .letter-btn:active {
+        transform: scale(0.95);
+    }
+
+    .pin-actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 20px;
+    }
+
+    .pin-actions button {
+        flex: 1;
+        padding: 12px;
+        font-size: 1em;
+        border-radius: 8px;
+        border: none;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .clear-btn {
+        background-color: #ff6b6b;
+        color: white;
+    }
+
+    .clear-btn:hover {
+        background-color: #ee5a52;
+    }
+
+    .verify-btn {
+        background-color: #51cf66;
+        color: white;
+    }
+
+    .verify-btn:hover {
+        background-color: #40c057;
+    }
+
+    .verify-btn:disabled {
+        background-color: #ccc;
+        cursor: not-allowed;
+    }
+
+    .user-selection {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 20px;
+    }
+
+    .user-btn {
+        padding: 15px;
+        font-size: 1.2em;
+        font-weight: bold;
+        background-color: #ffffff;
+        border: 2px solid #495057;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.2s;
+        color: #212529;
+    }
+
+    .user-btn:hover {
+        background-color: #667eea;
+        color: white;
+        border-color: #667eea;
+    }
+
+    .error-message {
+        color: #ff6b6b;
+        margin-top: 10px;
+        font-weight: 600;
+    }
+
+    .reset-btn {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 10px 20px;
+        background-color: #868e96;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 0.9em;
+    }
+
+    .reset-btn:hover {
+        background-color: #495057;
+    }
 </style>
+
+{#if showSplash}
+    <div class="splash-overlay">
+        <div class="splash-content">
+            {#if !pinEntered}
+                <h1>🔐 Enter PIN</h1>
+                <p>Select 2 letters to form the PIN</p>
+                
+                <div class="pin-input-display">
+                    {userInput.toUpperCase() || '_ _'}
+                </div>
+
+                <div class="letter-buttons">
+                    {#each jumbledLetters as letter}
+                        <button class="letter-btn" on:click={() => selectLetter(letter)}>
+                            {letter.toUpperCase()}
+                        </button>
+                    {/each}
+                </div>
+
+                {#if pinError}
+                    <p class="error-message">{pinError}</p>
+                {/if}
+
+                <div class="pin-actions">
+                    <button class="clear-btn" on:click={clearInput}>Clear</button>
+                    <button class="verify-btn" on:click={verifyPin} disabled={userInput.length !== 2}>Verify</button>
+                </div>
+            {:else}
+                <h1>👤 Select Your Name</h1>
+                <p>Choose your name to continue</p>
+                
+                <div class="user-selection">
+                    {#each names as name}
+                        <button class="user-btn" on:click={() => selectUserAndEnter(name)}>
+                            {name}
+                        </button>
+                    {/each}
+                </div>
+            {/if}
+        </div>
+    </div>
+{/if}
+
+{#if !showSplash}
+    <button class="reset-btn" on:click={resetUser}>Reset User</button>
+{/if}
 
 <div class="container">
     <h1>📦 Fridge & Pantry Logger</h1>
