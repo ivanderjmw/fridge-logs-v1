@@ -3,6 +3,7 @@
     import { db } from '../firebase';
     import { doc, deleteDoc, collection, addDoc, onSnapshot, updateDoc } from 'firebase/firestore';
     import { uploadBytes } from "firebase/storage";
+    import { GoogleGenAI } from "@google/genai";
 
     // Feature flags
     const enableAILogging = import.meta.env.VITE_ENABLE_AI_LOGGING === 'true';
@@ -365,6 +366,14 @@
     async function openCamera() {
         showCameraPopup = true;
         aiError = '';
+        
+        // Check if getUserMedia is supported
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            aiError = 'Camera not supported. Please use HTTPS or a supported browser.';
+            showCameraPopup = false;
+            return;
+        }
+        
         try {
             videoStream = await navigator.mediaDevices.getUserMedia({ 
                 video: { facingMode: 'environment' } 
@@ -390,25 +399,37 @@
             videoStream = null;
         }
         showCameraPopup = false;
-        capturedImageForAI = null;
+        // Don't clear capturedImageForAI here - it's needed for verification popup
     }
 
     function captureImage() {
         const videoElement = document.getElementById('camera-video');
+        if (!videoElement || !videoElement.videoWidth) {
+            aiError = 'Camera not ready. Please try again.';
+            return;
+        }
+        
         const canvas = document.createElement('canvas');
         canvas.width = videoElement.videoWidth;
         canvas.height = videoElement.videoHeight;
         const ctx = canvas.getContext('2d');
         ctx.drawImage(videoElement, 0, 0);
         
-        capturedImageForAI = canvas.toDataURL('image/jpeg', 0.8);
+        const imageData = canvas.toDataURL('image/jpeg', 0.8);
+        capturedImageForAI = imageData;
         closeCamera();
-        analyzeImageWithAI(capturedImageForAI);
+        analyzeImageWithAI(imageData);
     }
 
     async function analyzeImageWithAI(imageData) {
         aiAnalyzing = true;
         aiError = '';
+        
+        if (!imageData) {
+            aiError = 'No image captured. Please try again.';
+            aiAnalyzing = false;
+            return;
+        }
         
         try {
             const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
@@ -416,16 +437,17 @@
                 throw new Error('Gemini API key not configured. Please add VITE_GEMINI_API_KEY to your .env.local file.');
             }
 
+            // Initialize Google GenAI client
+            const ai = new GoogleGenAI({ apiKey });
+
             // Remove data URL prefix to get base64 string
             const base64Image = imageData.split(',')[1];
 
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    contents: [{
+            const response = await ai.models.generateContent({
+                model: "gemini-3-flash-preview",
+                contents: [
+                    {
+                        role: "user",
                         parts: [
                             {
                                 text: `Analyze this image of a food item and provide the following information in JSON format:
@@ -440,23 +462,20 @@
 Provide ONLY the JSON object, no additional text.`
                             },
                             {
-                                inline_data: {
-                                    mime_type: 'image/jpeg',
+                                inlineData: {
+                                    mimeType: 'image/jpeg',
                                     data: base64Image
                                 }
                             }
                         ]
-                    }]
-                })
+                    }
+                ]
             });
 
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error?.message || 'Failed to analyze image');
-            }
+            const textResponse = response.text;
 
-            const data = await response.json();
-            const textResponse = data.candidates[0].content.parts[0].text;
+            console.log(response);
+            console.log(textResponse);
             
             // Extract JSON from response (may be wrapped in markdown code blocks)
             const jsonMatch = textResponse.match(/\{[\s\S]*\}/);

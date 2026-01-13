@@ -1,11 +1,13 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
+import basicSsl from '@vitejs/plugin-basic-ssl';
 
 export default defineConfig({
-	plugins: [sveltekit()],
+	plugins: [sveltekit(), basicSsl()],
 	server: {
 		host: true, // Allow access from network
-		port: 5173
+		port: 5173,
+		https: true
 	},
 	// Expose environment variables to the client
 	define: {
