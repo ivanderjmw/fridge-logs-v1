@@ -1,5 +1,5 @@
 <script>
-    import { onMount } from 'svelte';
+    import { onMount, onDestroy } from 'svelte';
     import { db } from '../firebase';
     import { doc, deleteDoc, collection, addDoc, onSnapshot, updateDoc } from 'firebase/firestore';
     import { uploadBytes } from "firebase/storage";
@@ -7,6 +7,11 @@
 
     // Feature flags
     const enableAILogging = import.meta.env.VITE_ENABLE_AI_LOGGING === 'true';
+
+    // Infinite scroll state
+    const ITEMS_PER_PAGE = 20;
+    let displayLimit = ITEMS_PER_PAGE;
+    let loadingMore = false;
 
     let items = [];
     let loggerName = '';
@@ -21,6 +26,9 @@
     let finalImageData = null;
 
     let filterName = ''; // For dropdown filter
+    let sortBy = 'dateAdded'; // Sorting: 'qty', 'dateAdded', 'bestBefore'
+    let filterFreezer = false; // Filter by freezer
+    let filterShared = false; // Filter by shared
 
     // Predefined list of names
     const names = ["JT", "JK", "AT", "JM", "IJ"];
@@ -373,8 +381,49 @@
             items.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
         });
 
-        return unsubscribe;
+        // Set up infinite scroll listener
+        window.addEventListener('scroll', handleScroll);
+
+        return () => {
+            unsubscribe();
+            window.removeEventListener('scroll', handleScroll);
+        };
     });
+
+    function handleScroll() {
+        const scrollHeight = document.documentElement.scrollHeight;
+        const scrollTop = window.scrollY;
+        const clientHeight = window.innerHeight;
+        
+        // Load more when user is within 200px of the bottom
+        if (scrollTop + clientHeight >= scrollHeight - 200 && !loadingMore) {
+            loadMore();
+        }
+    }
+
+    function loadMore() {
+        const filteredCount = items.filter(item => 
+            (!filterName || item.name === filterName) &&
+            (!filterFreezer || item.type === 'freezer') &&
+            (!filterShared || item.shared)
+        ).length;
+        
+        if (displayLimit < filteredCount) {
+            loadingMore = true;
+            // Simulate a small delay for smoother UX
+            setTimeout(() => {
+                displayLimit += ITEMS_PER_PAGE;
+                loadingMore = false;
+            }, 300);
+        }
+    }
+
+    function resetDisplayLimit() {
+        displayLimit = ITEMS_PER_PAGE;
+    }
+
+    // Reset display limit when filters change
+    $: filterName, filterFreezer, filterShared, sortBy, resetDisplayLimit();
 
     async function handleSubmit() {
         if (!loggerName || !itemName || isSubmitting) {
@@ -833,6 +882,33 @@ Provide ONLY the JSON object, no additional text.`
         border: 1px dashed #ccc;
         border-radius: 4px;
     }
+
+    /* Infinite scroll styles */
+    .loading-more {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 20px;
+        color: #667eea;
+        font-weight: 500;
+    }
+
+    .loading-more span {
+        animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+
+    .load-more-hint {
+        text-align: center;
+        padding: 15px;
+        color: #888;
+        font-size: 0.9em;
+    }
+
     select {
         width: 100%;
         padding: 12px;
@@ -859,6 +935,87 @@ Provide ONLY the JSON object, no additional text.`
             height: 48px;
         }
     }
+
+    /* Filter controls styles */
+    .filter-controls {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        margin-bottom: 20px;
+        padding: 15px;
+        background-color: #f8f9fa;
+        border-radius: 8px;
+        border: 1px solid #e0e0e0;
+    }
+
+    .filter-row {
+        display: flex;
+        gap: 15px;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .filter-group {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        flex: 1;
+        min-width: 120px;
+    }
+
+    .filter-group label {
+        font-weight: 600;
+        font-size: 0.85em;
+        color: #555;
+    }
+
+    .filter-group select {
+        margin: 0;
+    }
+
+    .checkbox-filter {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 15px;
+        background-color: #fff;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-weight: 500;
+    }
+
+    .checkbox-filter:hover {
+        border-color: #007BFF;
+        background-color: #f0f7ff;
+    }
+
+    .checkbox-filter input[type="checkbox"] {
+        margin: 0;
+        transform: scale(1.2);
+        cursor: pointer;
+    }
+
+    .checkbox-filter input[type="checkbox"]:checked + span {
+        color: #007BFF;
+    }
+
+    @media (max-width: 768px) {
+        .filter-row {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .filter-group {
+            width: 100%;
+        }
+
+        .checkbox-filter {
+            justify-content: center;
+        }
+    }
+
     /* Checkbox styles */
     .form-group input[type="checkbox"] {
         margin-right: 10px;
@@ -1548,19 +1705,66 @@ Provide ONLY the JSON object, no additional text.`
 
     <hr>
 
-    <h2>Filter Items</h2>
-    <select bind:value={filterName}>
-        <option value="">All</option>
-        {#each Array.from(new Set(items.map(item => item.name))) as name}
-            <option value={name}>{name}</option>
-        {/each}
-    </select>
+    <h2>Sort & Filter</h2>
+    <div class="filter-controls">
+        <div class="filter-row">
+            <div class="filter-group">
+                <label for="sort-by">Sort by:</label>
+                <select id="sort-by" bind:value={sortBy}>
+                    <option value="dateAdded">Date Added</option>
+                    <option value="qty">Quantity</option>
+                    <option value="bestBefore">Best Before</option>
+                </select>
+            </div>
+            
+            <div class="filter-group">
+                <label for="filter-name">Owner:</label>
+                <select id="filter-name" bind:value={filterName}>
+                    <option value="">All</option>
+                    {#each Array.from(new Set(items.map(item => item.name))) as name}
+                        <option value={name}>{name}</option>
+                    {/each}
+                </select>
+            </div>
+        </div>
+        
+        <div class="filter-row">
+            <label class="checkbox-filter">
+                <input type="checkbox" bind:checked={filterFreezer}>
+                <span>❄️ Freezer only</span>
+            </label>
+            
+            <label class="checkbox-filter">
+                <input type="checkbox" bind:checked={filterShared}>
+                <span>👥 Shared only</span>
+            </label>
+        </div>
+    </div>
 
-    <h2>Logged Items ({items.length})</h2>
+    <h2>Logged Items ({items.filter(item => 
+        (!filterName || item.name === filterName) &&
+        (!filterFreezer || item.type === 'freezer') &&
+        (!filterShared || item.shared)
+    ).length})</h2>
 
     {#if items.length > 0}
+        {@const filteredItems = items
+            .filter(item => 
+                (!filterName || item.name === filterName) &&
+                (!filterFreezer || item.type === 'freezer') &&
+                (!filterShared || item.shared)
+            )
+            .sort((a, b) => {
+                if (sortBy === 'qty') return b.quantity - a.quantity;
+                if (sortBy === 'bestBefore') {
+                    if (!a.bestBefore) return 1;
+                    if (!b.bestBefore) return -1;
+                    return new Date(a.bestBefore) - new Date(b.bestBefore);
+                }
+                return new Date(a.createdAt) - new Date(b.createdAt);
+            })}
         <ul class="item-list">
-            {#each items.filter(item => !filterName || item.name === filterName) as item (item.id)}
+            {#each filteredItems.slice(0, displayLimit) as item (item.id)}
                 <li class="item-card">
                     <img class="item-image" src={item.imageBase64} alt={item.itemName}>
                     
@@ -1581,6 +1785,18 @@ Provide ONLY the JSON object, no additional text.`
                 </li>
             {/each}
         </ul>
+        
+        {#if loadingMore}
+            <div class="loading-more">
+                <span>Loading more items...</span>
+            </div>
+        {/if}
+        
+        {#if displayLimit < filteredItems.length}
+            <div class="load-more-hint">
+                <span>Scroll down to load more ({filteredItems.length - displayLimit} remaining)</span>
+            </div>
+        {/if}
     {:else}
         <p class="empty-message">No items logged yet. Use the form above to add your first item!</p>
     {/if}
