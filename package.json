@@ -5,9 +5,13 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
+		"dev:env": "powershell -ExecutionPolicy Bypass -File ./dev.ps1",
+		"dev:env:bash": "bash ./dev.sh",
 		"build": "vite build",
 		"preview": "vite preview",
-		"prepare": "svelte-kit sync || echo ''"
+		"prepare": "svelte-kit sync || echo ''",
+		"deploy": "powershell -ExecutionPolicy Bypass -File ./build-and-deploy.ps1",
+		"deploy:bash": "bash ./build-and-deploy.sh"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-auto": "^6.1.0",
