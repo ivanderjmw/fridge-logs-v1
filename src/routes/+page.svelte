@@ -27,6 +27,7 @@
 
     let filterName = ''; // For dropdown filter
     let sortBy = 'dateAdded'; // Sorting: 'qty', 'dateAdded', 'bestBefore'
+    let sortAscending = true; // Sort direction
     let filterFreezer = false; // Filter by freezer
     let filterShared = false; // Filter by shared
 
@@ -973,6 +974,43 @@ Provide ONLY the JSON object, no additional text.`
         margin: 0;
     }
 
+    .sort-group {
+        flex: 1.5;
+    }
+
+    .sort-controls {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+    }
+
+    .sort-controls select {
+        flex: 1;
+    }
+
+    .sort-direction-btn {
+        width: 44px;
+        height: 44px;
+        padding: 0;
+        font-size: 1.3em;
+        font-weight: bold;
+        background-color: #fff;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.2s;
+        color: #333;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .sort-direction-btn:hover {
+        border-color: #007BFF;
+        background-color: #f0f7ff;
+        color: #007BFF;
+    }
+
     .checkbox-filter {
         display: flex;
         align-items: center;
@@ -1136,7 +1174,7 @@ Provide ONLY the JSON object, no additional text.`
     }
 
     .letter-btn {
-        padding: 20px 10px;
+        padding: 5px 5px;
         font-size: 1.5em;
         font-weight: bold;
         background-color: #ffffff;
@@ -1146,7 +1184,6 @@ Provide ONLY the JSON object, no additional text.`
         transition: all 0.2s;
         color: #212529;
         width: 100% !important;
-        min-height: 60px;
         box-sizing: border-box;
     }
 
@@ -1207,7 +1244,7 @@ Provide ONLY the JSON object, no additional text.`
     }
 
     .user-btn {
-        padding: 15px;
+        padding: 5px;
         font-size: 1.2em;
         font-weight: bold;
         background-color: #ffffff;
@@ -1708,13 +1745,22 @@ Provide ONLY the JSON object, no additional text.`
     <h2>Sort & Filter</h2>
     <div class="filter-controls">
         <div class="filter-row">
-            <div class="filter-group">
+            <div class="filter-group sort-group">
                 <label for="sort-by">Sort by:</label>
-                <select id="sort-by" bind:value={sortBy}>
-                    <option value="dateAdded">Date Added</option>
-                    <option value="qty">Quantity</option>
-                    <option value="bestBefore">Best Before</option>
-                </select>
+                <div class="sort-controls">
+                    <select id="sort-by" bind:value={sortBy}>
+                        <option value="dateAdded">Date Added</option>
+                        <option value="qty">Quantity</option>
+                        <option value="bestBefore">Best Before</option>
+                    </select>
+                    <button 
+                        class="sort-direction-btn" 
+                        on:click={() => sortAscending = !sortAscending}
+                        title={sortAscending ? 'Ascending' : 'Descending'}
+                    >
+                        {sortAscending ? '↑' : '↓'}
+                    </button>
+                </div>
             </div>
             
             <div class="filter-group">
@@ -1755,13 +1801,17 @@ Provide ONLY the JSON object, no additional text.`
                 (!filterShared || item.shared)
             )
             .sort((a, b) => {
-                if (sortBy === 'qty') return b.quantity - a.quantity;
-                if (sortBy === 'bestBefore') {
+                let result = 0;
+                if (sortBy === 'qty') {
+                    result = a.quantity - b.quantity;
+                } else if (sortBy === 'bestBefore') {
                     if (!a.bestBefore) return 1;
                     if (!b.bestBefore) return -1;
-                    return new Date(a.bestBefore) - new Date(b.bestBefore);
+                    result = new Date(a.bestBefore) - new Date(b.bestBefore);
+                } else {
+                    result = new Date(a.createdAt) - new Date(b.createdAt);
                 }
-                return new Date(a.createdAt) - new Date(b.createdAt);
+                return sortAscending ? result : -result;
             })}
         <ul class="item-list">
             {#each filteredItems.slice(0, displayLimit) as item (item.id)}
