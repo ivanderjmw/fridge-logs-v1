@@ -41,6 +41,17 @@
     let capturedImageForAI = null;
     let aiAnalyzing = false;
     let aiError = '';
+
+    // Edit popup state
+    let showEditPopup = false;
+    let editingItem = null;
+    let editData = {
+        itemName: '',
+        bestBefore: '',
+        quantity: 1,
+        type: 'fridge',
+        shared: false
+    };
     let aiSuggestedData = {
         itemName: '',
         bestBefore: '',
@@ -280,6 +291,52 @@
             await updateDoc(itemRef, { quantity: newQuantity });
         } catch (error) {
             console.error('Error updating item quantity:', error);
+        }
+    }
+
+    function openEditPopup(item) {
+        editingItem = item;
+        editData = {
+            itemName: item.itemName,
+            bestBefore: item.bestBefore || '',
+            quantity: item.quantity,
+            type: item.type,
+            shared: item.shared
+        };
+        showEditPopup = true;
+    }
+
+    function closeEditPopup() {
+        showEditPopup = false;
+        editingItem = null;
+        editData = {
+            itemName: '',
+            bestBefore: '',
+            quantity: 1,
+            type: 'fridge',
+            shared: false
+        };
+    }
+
+    async function saveEdit() {
+        if (!editingItem || isSubmitting) return;
+        isSubmitting = true;
+
+        try {
+            const itemRef = doc(db, 'items', editingItem.id);
+            await updateDoc(itemRef, {
+                itemName: editData.itemName,
+                bestBefore: editData.bestBefore || null,
+                quantity: editData.quantity,
+                type: editData.type,
+                shared: editData.shared
+            });
+            closeEditPopup();
+        } catch (error) {
+            console.error('Error updating item:', error);
+            alert('Failed to update item.');
+        } finally {
+            isSubmitting = false;
         }
     }
 
@@ -553,16 +610,52 @@ Provide ONLY the JSON object, no additional text.`
     :global(body) {
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
         background-color: #f4f7f6;
-        padding: 20px;
+        padding: 10px;
+        margin: 0;
+        overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
+        touch-action: pan-y;
+    }
+    
+    :global(*) {
+        box-sizing: border-box;
+    }
+    
+    :global(button, a, input, select, textarea) {
+        touch-action: manipulation;
+    }
+    
+    h1, h2 {
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+    }
+    
+    @media (max-width: 768px) {
+        h1 {
+            font-size: 1.5em;
+        }
+        
+        h2 {
+            font-size: 1.2em;
+        }
     }
 
     .container {
         max-width: 800px;
         margin: 0 auto;
-        padding: 20px;
+        padding: 15px;
         background-color: white;
         border-radius: 8px;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        width: 100%;
+        overflow-x: hidden;
+    }
+    
+    @media (max-width: 768px) {
+        .container {
+            padding: 10px;
+            border-radius: 0;
+        }
     }
 
     /* --- Form Styles --- */
@@ -575,6 +668,14 @@ Provide ONLY the JSON object, no additional text.`
         border: 1px solid #e0e0e0;
         border-radius: 6px;
         background-color: #fafafa;
+    }
+    
+    @media (max-width: 768px) {
+        .item-form {
+            grid-template-columns: 1fr;
+            padding: 15px;
+            gap: 12px;
+        }
     }
 
     .form-group {
@@ -592,10 +693,28 @@ Provide ONLY the JSON object, no additional text.`
     input[type="text"],
     input[type="date"],
     button {
-        padding: 10px;
+        padding: 12px;
         border: 1px solid #ccc;
         border-radius: 4px;
-        font-size: 1em;
+        font-size: 16px;
+        width: 100%;
+        box-sizing: border-box;
+        height: 44px;
+        line-height: 1.5;
+    }
+    
+    input[type="date"]::-webkit-calendar-picker-indicator {
+        cursor: pointer;
+    }
+    
+    @media (max-width: 768px) {
+        input[type="text"],
+        input[type="date"],
+        button {
+            padding: 14px;
+            font-size: 16px;
+            height: 48px;
+        }
     }
 
     button {
@@ -615,15 +734,33 @@ Provide ONLY the JSON object, no additional text.`
     .item-list {
         list-style: none;
         padding: 0;
+        margin: 0;
+        width: 100%;
     }
 
     .item-card {
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         margin-bottom: 10px;
         padding: 15px;
         background-color: #ffffff;
         border-bottom: 1px solid #eee;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .item-card * {
+        margin: 0;
+    }
+    
+    @media (max-width: 768px) {
+        .item-card {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            grid-template-rows: repeat(2, 105px);
+            gap: 0px 16px;
+            padding: 12px;
+        }
     }
 
     .item-image {
@@ -634,9 +771,33 @@ Provide ONLY the JSON object, no additional text.`
         margin-right: 15px;
         flex-shrink: 0;
     }
+    
+    @media (max-width: 768px) {
+        .item-image {
+            width: 100%;
+            height: auto;
+            max-height: 210px;
+            margin-right: 0;
+            grid-row: span 2 / span 2;
+            align-self: center;
+        }
+    }
 
     .item-details {
         flex-grow: 1;
+        
+        
+        min-width: 0;
+        border-radius: 1em;
+        padding: 1em;
+        font-size: small;
+    }
+    
+    @media (max-width: 768px) {
+        .item-details {
+            padding: 0.5em;
+            width: 100%;
+        }
     }
 
     .item-name {
@@ -644,6 +805,13 @@ Provide ONLY the JSON object, no additional text.`
         font-size: 1.1em;
         color: #1a1a1a;
         margin: 0;
+    }
+    
+    #best-before {
+        font-weight: 600;
+        color: #d9534f; /* Red for emphasis */
+        font-size: 0.9em;
+        padding: 0;
     }
 
     .best-before {
@@ -667,19 +835,29 @@ Provide ONLY the JSON object, no additional text.`
     }
     select {
         width: 100%;
-        padding: 10px;
+        padding: 12px;
         margin: 8px 0;
         border: 1px solid #ccc;
         border-radius: 4px;
         font-size: 16px;
         background-color: #fff;
         color: #333;
+        height: 44px;
+        box-sizing: border-box;
     }
 
     select:focus {
         outline: none;
         border-color: #007BFF;
         box-shadow: 0 0 5px rgba(0, 123, 255, 0.5);
+    }
+    
+    @media (max-width: 768px) {
+        select {
+            padding: 14px;
+            font-size: 16px;
+            height: 48px;
+        }
     }
     /* Checkbox styles */
     .form-group input[type="checkbox"] {
@@ -694,23 +872,51 @@ Provide ONLY the JSON object, no additional text.`
         font-size: 16px;
         color: #333;
     }
+    
+    /* File input styles */
+    .form-group input[type="file"] {
+        padding: 8px;
+        width: 100%;
+        font-size: 14px;
+    }
+    
+    @media (max-width: 768px) {
+        .form-group input[type="file"] {
+            padding: 10px 8px;
+            font-size: 16px;
+        }
+        
+        .form-group input[type="checkbox"] {
+            transform: scale(1.5);
+        }
+    }
 
     /* Quantity input styles */
     .form-group input[type="number"] {
-        width: 50%;
-        padding: 10px;
+        width: 100%;
+        padding: 12px;
         margin: 8px 0;
         border: 1px solid #ccc;
         border-radius: 4px;
         font-size: 16px;
         background-color: #fff;
         color: #333;
+        height: 44px;
+        box-sizing: border-box;
     }
 
     .form-group input[type="number"]:focus {
         outline: none;
         border-color: #007BFF;
         box-shadow: 0 0 5px rgba(0, 123, 255, 0.5);
+    }
+    
+    @media (max-width: 768px) {
+        .form-group input[type="number"] {
+            padding: 14px;
+            font-size: 16px;
+            height: 48px;
+        }
     }
 
     /* Splash screen styles */
@@ -736,6 +942,14 @@ Provide ONLY the JSON object, no additional text.`
         max-width: 500px;
         width: 90%;
     }
+    
+    @media (max-width: 768px) {
+        .splash-content {
+            padding: 25px;
+            width: 95%;
+            max-width: 100%;
+        }
+    }
 
     .splash-content h1 {
         margin-bottom: 30px;
@@ -756,14 +970,16 @@ Provide ONLY the JSON object, no additional text.`
     }
 
     .letter-buttons {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
+        display: grid !important;
+        grid-template-columns: repeat(3, 1fr) !important;
         gap: 10px;
         margin: 20px 0;
+        width: 100%;
+        box-sizing: border-box;
     }
 
     .letter-btn {
-        padding: 20px;
+        padding: 20px 10px;
         font-size: 1.5em;
         font-weight: bold;
         background-color: #ffffff;
@@ -772,6 +988,9 @@ Provide ONLY the JSON object, no additional text.`
         cursor: pointer;
         transition: all 0.2s;
         color: #212529;
+        width: 100% !important;
+        min-height: 60px;
+        box-sizing: border-box;
     }
 
     .letter-btn:hover {
@@ -865,10 +1084,22 @@ Provide ONLY the JSON object, no additional text.`
         border-radius: 6px;
         cursor: pointer;
         font-size: 0.9em;
+        z-index: 100;
+        max-width: fit-content;
     }
 
     .reset-btn:hover {
         background-color: #495057;
+    }
+    
+    @media (max-width: 768px) {
+        .reset-btn {
+            top: 10px;
+            right: 10px;
+            padding: 8px 12px;
+            font-size: 0.8em;
+            height: fit-content;
+        }
     }
 
     /* AI Logging styles */
@@ -888,6 +1119,7 @@ Provide ONLY the JSON object, no additional text.`
     .ai-button:hover {
         background-color: #845ef7;
     }
+
 
     .popup-overlay {
         position: fixed;
@@ -910,6 +1142,16 @@ Provide ONLY the JSON object, no additional text.`
         max-height: 90%;
         overflow-y: auto;
         position: relative;
+        -webkit-overflow-scrolling: touch;
+    }
+    
+    @media (max-width: 768px) {
+        .popup-content {
+            padding: 20px;
+            max-width: 95%;
+            max-height: 95%;
+            border-radius: 8px;
+        }
     }
 
     .camera-container {
@@ -928,6 +1170,13 @@ Provide ONLY the JSON object, no additional text.`
     .camera-buttons {
         display: flex;
         gap: 10px;
+        width: 100%;
+    }
+    
+    @media (max-width: 768px) {
+        .camera-buttons {
+            flex-direction: column;
+        }
     }
 
     .capture-btn {
@@ -938,10 +1187,18 @@ Provide ONLY the JSON object, no additional text.`
         border-radius: 6px;
         font-size: 1em;
         cursor: pointer;
+        min-height: 44px;
     }
 
     .capture-btn:hover {
         background-color: #40c057;
+    }
+    
+    @media (max-width: 768px) {
+        .capture-btn {
+            width: 100%;
+            padding: 16px;
+        }
     }
 
     .cancel-btn {
@@ -952,15 +1209,30 @@ Provide ONLY the JSON object, no additional text.`
         border-radius: 6px;
         font-size: 1em;
         cursor: pointer;
+        min-height: 44px;
     }
 
     .cancel-btn:hover {
         background-color: #495057;
     }
+    
+    @media (max-width: 768px) {
+        .cancel-btn {
+            width: 100%;
+            padding: 16px;
+        }
+    }
 
     .verification-container {
         width: 500px;
         max-width: 90vw;
+    }
+    
+    @media (max-width: 768px) {
+        .verification-container {
+            width: 100%;
+            max-width: 100%;
+        }
     }
 
     .verification-container h2 {
@@ -996,6 +1268,12 @@ Provide ONLY the JSON object, no additional text.`
         gap: 10px;
         margin-top: 20px;
     }
+    
+    @media (max-width: 768px) {
+        .verification-actions {
+            flex-direction: column;
+        }
+    }
 
     .submit-btn {
         flex: 1;
@@ -1007,10 +1285,18 @@ Provide ONLY the JSON object, no additional text.`
         font-size: 1em;
         cursor: pointer;
         font-weight: bold;
+        min-height: 44px;
     }
 
     .submit-btn:hover {
         background-color: #0b7dda;
+    }
+    
+    @media (max-width: 768px) {
+        .submit-btn {
+            width: 100%;
+            padding: 16px;
+        }
     }
 
     .loading-spinner {
@@ -1026,6 +1312,133 @@ Provide ONLY the JSON object, no additional text.`
         background-color: #ffe0e0;
         border-radius: 6px;
         margin: 10px 0;
+    }
+    
+    /* Item card action buttons */
+    .item-actions {
+        display: flex;
+        gap: 8px;
+        width: 100%;
+        margin-top: 10px;
+    }
+    
+    .item-actions button {
+        flex: 1;
+        padding: 10px;
+        font-size: 14px;
+        /* min-height: 44px; */
+        white-space: nowrap;
+    }
+    
+    @media (max-width: 768px) {
+        .item-actions {
+            flex-wrap: wrap;
+            grid-column-start: 2;
+            align-self: end;
+        }
+        
+        .item-actions button {
+            min-width: calc(50% - 4px);
+            height: 30px;
+            padding: 5px;
+        }
+    }
+    
+    /* Quantity buttons */
+    .quantity-btn {
+        background-color: #28a745;
+        color: white;
+        border: none;
+        font-weight: bold;
+        font-size: 1.2em;
+    }
+    
+    .quantity-btn:hover {
+        background-color: #218838;
+    }
+
+    .edit-btn {
+        background-color: #ffc107;
+        color: white;
+        border: none;
+        font-weight: bold;
+    }
+    
+    .edit-btn:hover {
+        background-color: #e0a800;
+    }
+    
+    .remove-btn {
+        background-color: #dc3545;
+        color: white;
+        border: none;
+    }
+    
+    .remove-btn:hover {
+        background-color: #c82333;
+    }
+
+    /* Edit popup styles */
+    .edit-container {
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+        min-width: 300px;
+    }
+
+    .edit-container h2 {
+        margin: 0 0 10px 0;
+        color: #333;
+    }
+
+    .edit-form {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .edit-form .form-group {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+
+    .edit-form label {
+        font-weight: 600;
+        color: #333;
+    }
+
+    .edit-form input,
+    .edit-form select {
+        padding: 10px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 1em;
+    }
+
+    .edit-actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 15px;
+    }
+
+    .edit-actions button {
+        flex: 1;
+        padding: 12px;
+        border: none;
+        border-radius: 6px;
+        font-size: 1em;
+        cursor: pointer;
+        font-weight: bold;
+    }
+
+    .save-btn {
+        background-color: #28a745;
+        color: white;
+    }
+
+    .save-btn:hover {
+        background-color: #218838;
     }
 </style>
 
@@ -1127,7 +1540,7 @@ Provide ONLY the JSON object, no additional text.`
         </div>
 
 
-        <button type="submit">Log Item</button>
+        <button type="submit"  class="log-button">Log Item</button>
         {#if enableAILogging}
             <button type="button" class="ai-button" on:click={openCamera}>📸 Log with AI</button>
         {/if}
@@ -1155,14 +1568,16 @@ Provide ONLY the JSON object, no additional text.`
                         <p class="item-name">{item.itemName}</p>
                         <p class="best-before">Best Before: {formatBestBefore(item.bestBefore)}</p>
                         <p class="logged-by">Logged by: {item.name}</p>
-                        <p>Quantity: {item.quantity}</p>
-                        <p>Type: {item.type}</p>
-                        <p>Shared: {item.shared ? 'Yes' : 'No'}</p>
+                        <p>{item.quantity + " pc" + (item.quantity > 0 ? "s" : "")} / {item.type} / {item.shared ? 'Shared' : 'Personal'}</p>
                         <p>Age: {item.timeDelta}</p>
                     </div>
-                    <button on:click={() => decreaseQuantity(item)}>-</button>
-                    <button on:click={() => increaseQuantity(item)}>+</button>
-                    <button on:click={() => removeItemFromFirestore(item.id)}>Remove</button>
+                    
+                    <div class="item-actions">
+                        <button class="quantity-btn" on:click={() => decreaseQuantity(item)}>−</button>
+                        <button class="quantity-btn" on:click={() => increaseQuantity(item)}>+</button>
+                        <button class="edit-btn" on:click={() => openEditPopup(item)}>✏️</button>
+                        <button class="remove-btn" on:click={() => removeItemFromFirestore(item.id)}>🗑️</button>
+                    </div>
                 </li>
             {/each}
         </ul>
@@ -1197,6 +1612,54 @@ Provide ONLY the JSON object, no additional text.`
             <div class="loading-spinner">
                 <p>🤖 Analyzing image with AI...</p>
                 <p>Please wait...</p>
+            </div>
+        </div>
+    </div>
+{/if}
+
+<!-- Edit Popup -->
+{#if showEditPopup}
+    <div class="popup-overlay">
+        <div class="popup-content">
+            <div class="edit-container">
+                <h2>✏️ Edit Item</h2>
+                
+                <div class="edit-form">
+                    <div class="form-group">
+                        <label for="edit-item-name">Item Name</label>
+                        <input id="edit-item-name" type="text" bind:value={editData.itemName}>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="edit-best-before">Best Before Date</label>
+                        <input id="edit-best-before" type="date" bind:value={editData.bestBefore}>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="edit-quantity">Quantity</label>
+                        <input id="edit-quantity" type="number" bind:value={editData.quantity} min="1">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="edit-type">Type</label>
+                        <select id="edit-type" bind:value={editData.type}>
+                            <option value="fridge">Fridge</option>
+                            <option value="freezer">Freezer</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="edit-shared">Shared</label>
+                        <input id="edit-shared" type="checkbox" bind:checked={editData.shared}>
+                    </div>
+                </div>
+
+                <div class="edit-actions">
+                    <button class="cancel-btn" on:click={closeEditPopup}>Cancel</button>
+                    <button class="save-btn" on:click={saveEdit} disabled={isSubmitting}>
+                        {isSubmitting ? 'Saving...' : 'Save'}
+                    </button>
+                </div>
             </div>
         </div>
     </div>
